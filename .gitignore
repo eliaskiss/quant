@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 실행 로그
+logs/
+*.log
+
+# 캐시 (자동 재생성)
+fund_cache.json
+holdings/kr_names.json
+
+# 다운로드한 보유종목·재무 원본 (매일 자동 갱신)
+holdings/
+*.tmp
+
+# 생성된 리포트·분석 결과 (스크립트로 재생성 가능)
+daily_report/
+turn.json
+
+# 에디터·OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
