@@ -11,12 +11,12 @@ ETF·주식 투자 분석 작업 폴더입니다. 2026-11-12 Claude Code 세션�
 | `trend10.py` | 10년 안정성 지표: CAGR, 변동성, MDD, Ulcer Index, 로그가격 R², 12개월 보유 시 수익 확률 |
 | `mix.py` | 4종목 배분 백테스트. 원화 기준, 연 1회 리밸런싱. 실행 시 `trend10.py`를 exec하므로 이 폴더에서 실행해야 합니다. |
 | `turn.py` | 추세 전환 판정 엔진. 대상은 SPY 30, QQQ 30, KODEX 200 50개(`LIMITS`). `run_all()`, `analyze(sym)`, `parse_sa()` 제공 |
-| `turn.json` | `turn.py` 단독 실행 결과 |
+| `turn.json` | `turn.py`를 단독 실행할 때 생성됩니다. 다른 코드에서는 읽지 않습니다. |
 | `daily_report.py` | 상승전환 HTML 리포트 생성기 |
 | `fundamentals.py` | 매수 후보 재무 조회·등급(`get_many`, `grade`). 캐시는 `fund_cache.json` |
 | `run_daily.sh` | cron 진입점. 로그는 `logs/daily_report.log`에 쌓입니다. |
 | `daily_report/` | `YYYY-MM-DD.html`, `latest.html`, `data/YYYY-MM-DD.json`(판정 스냅샷, 전일 비교용) |
-| `holdings/` | 보유종목 원본(`spy.xlsx`, `qqq.html`, `k200_sa.html`, `schd.html`, `k200_naver.json`), CRWD 재무 페이지 |
+| `holdings/` | 보유종목 원본(`spy.xlsx`, `qqq.html`, `k200_sa.html`), 전체 구성종목 CSV(`qqq_full.csv`, `k200_full.csv`), 한글명 캐시(`kr_names.json`) |
 
 ## 매일 리포트
 
