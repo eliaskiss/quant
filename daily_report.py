@@ -22,6 +22,7 @@ DATA = os.path.join(OUT, "data")
 sys.path.insert(0, BASE)
 import turn  # noqa: E402
 import fundamentals  # noqa: E402
+import ai_review  # noqa: E402
 
 UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130 Safari/537.36"}
 SOURCES = {
@@ -243,6 +244,7 @@ def _etf_agg(lists, res):
 
 GRADE_RANK = {"A": 4, "B": 3, "C": 2, "N/A": 1, "D": 0}
 GRADE_COLOR = {"A": "--up", "B": "--trend", "C": "--warn", "D": "--down", "N/A": "--muted"}
+AI_COLOR = {"유지": "--trend", "주의": "--warn", "보류": "--down"}
 
 
 def closing_section(lists, ok, meta, etf_self, prev, log):
@@ -308,6 +310,17 @@ def closing_section(lists, ok, meta, etf_self, prev, log):
         return (f"<span class=badge style='--c:var({GRADE_COLOR[gr]})'>{gr}</span> "
                 f"<span class=sub>{axes}{' · 금융업 기준' if fin else ''}</span><div class=sub>{nums}</div>")
 
+    ai = None
+
+    def ai_cell(t):
+        r = (ai or {}).get("reviews", {}).get(t)
+        if not r:
+            return "<span class=sub>-</span>"
+        flags = "".join(f"<div class=sub>· {html.escape(x)}</div>" for x in r.get("risk_flags", []))
+        ev = f"<div class=sub>📅 {html.escape(r['next_event'])}</div>" if r.get("next_event") else ""
+        return (f"<span class=badge style='--c:var({AI_COLOR.get(r['verdict'], '--muted')})'>{html.escape(r['verdict'])}</span>"
+                f"<div>{html.escape(r.get('comment', ''))}</div>{ev}{flags}")
+
     def rec_row(t, entry, stop, why):
         a = ok[t]
         risk = (entry - stop) / entry * 100 if entry and stop and stop < entry else None
@@ -315,7 +328,8 @@ def closing_section(lists, ok, meta, etf_self, prev, log):
                 f"<td class=num>{fmt_px(t, a['last'])}</td><td class=num>{entry_label(t, entry, a)}</td>"
                 f"<td class=num>{fmt_px(t, stop)}</td><td class=num>{'-' if risk is None else f'{risk:.1f}%'}</td>"
                 f"<td style='white-space:normal;min-width:260px'>{fund_cell(t)}</td>"
-                f"<td style='white-space:normal'>{why}</td></tr>")
+                f"<td style='white-space:normal'>{why}</td>"
+                f"<td style='white-space:normal;min-width:240px'>{ai_cell(t)}</td></tr>")
 
     def entry_label(t, entry, a):
         return "현재가 부근" if abs(entry / a["last"] - 1) < 0.005 else f"{fmt_px(t, entry)} 돌파 시"
@@ -357,15 +371,44 @@ def closing_section(lists, ok, meta, etf_self, prev, log):
                 continue
             keep.append((GRADE_RANK[gr], key, t, entry, stop, why))
         keep.sort(key=lambda x: (-x[0], -x[1]))  # 재무 등급 우선, 같은 등급은 기술 점수 순
-        return [rec_row(t, entry, stop, why) for _, _, t, entry, stop, why in keep[:6]]
+        return [(t, entry, stop, why) for _, _, t, entry, stop, why in keep[:6]]
 
-    A, B, C = rank(A, "추세전환"), rank(B, "눌림목"), rank(C, "돌파 대기")
+    picks = {"추세전환": rank(A, "추세전환"), "눌림목": rank(B, "눌림목"), "돌파 대기": rank(C, "돌파 대기")}
+
+    # Claude 검토: 규칙으로 확정된 후보에 의견만 붙인다(순위·포함 여부는 바꾸지 않음)
+    cands = []
+    for label, items in picks.items():
+        for t, entry, stop, why in items:
+            a, d = ok[t], fund.get(t) or {}
+            cands.append({
+                "ticker": t, "name": name_of(t, meta[t]["name"]), "market": "KRX" if t.endswith(".KS") else "US",
+                "category": label, "etfs": meta[t]["etfs"], "price": a["last"], "entry": entry, "stop": stop,
+                "technical": {k: a.get(k) for k in ("state", "date", "rsi", "dd", "a50", "a200", "gc", "hl", "brk",
+                                                    "macd", "conf", "conf_gap", "brk_vol", "ma50")},
+                "rule_reason": html.unescape(why),
+                "fundamental_grade": fundamentals.grade(d)[0],
+                "fundamentals": {k: v for k, v in d.items() if v is not None},
+            })
+    ai = ai_review.review(cands, log)
+    A, B, C = ([rec_row(*x) for x in picks[k]] for k in ("추세전환", "눌림목", "돌파 대기"))
 
     def rec_tbl(items, empty):
         if not items:
             return f"<p class=empty>{empty}</p>"
         return ("<div class=tw><table><thead><tr><th>종목</th><th>현재가</th><th>매수 기준</th><th>손절 기준</th>"
-                "<th>위험폭</th><th>재무</th><th>기술적 근거</th></tr></thead><tbody>" + "".join(items) + "</tbody></table></div>")
+                "<th>위험폭</th><th>재무</th><th>기술적 근거</th><th>AI 검토 (참고)</th></tr></thead><tbody>"
+                + "".join(items) + "</tbody></table></div>")
+
+    ai_html = ""
+    if ai:
+        cnt = {v: sum(r["verdict"] == v for r in ai["reviews"].values()) for v in ai_review.VERDICTS}
+        ai_html = (f"<div class=card style='margin:12px 0'><b>🤖 AI 검토 요약</b> "
+                   f"<span class=sub>{html.escape(ai['model'])} · {html.escape(ai['ts'][:16].replace('T', ' '))}"
+                   f"{' · 웹 검색' if ai.get('web_search') else ' · 웹 검색 없음'} · "
+                   + " / ".join(f"{k} {v}" for k, v in cnt.items()) + "</span>"
+                   f"<div style='margin-top:6px'>{html.escape(ai.get('summary', ''))}</div>"
+                   "<div class=sub style='margin-top:6px'>후보 선정과 순위는 위 규칙 그대로이며, AI 검토는 뉴스·일정 기반 참고 의견입니다. "
+                   "유지: 특이 악재 없음 · 주의: 이벤트 리스크로 비중 축소/이벤트 후 진입 고려 · 보류: 구체적 악재 확인. 사실 여부는 직접 확인하세요.</div></div>")
 
     weak_html = ""
     if weak:
@@ -389,6 +432,7 @@ def closing_section(lists, ok, meta, etf_self, prev, log):
 <tr><td>일반 업종</td><td>가치: 선행 PER ≤ 25 또는 PEG ≤ 1.5 · 수익성: ROE ≥ 12%, 영업이익률 ≥ 10%, FCF 마진 ≥ 5% 중 2개 · 안정성: 부채비율 ≤ 1.0 · 성장: 3년 매출성장 전망 ≥ 5%</td></tr>
 <tr><td>금융업</td><td>가치: PBR ≤ 1.5 또는 PER ≤ 15 · 수익성: ROE ≥ 10% · 안정성: 평가 제외 · 성장: 3년 매출성장 전망 ≥ 3%</td></tr>
 </tbody></table></div>
+{ai_html}
 <h3>① 추세전환 매수 — 상승전환 확인 종목</h3>
 <p class="sub">조건: 상승전환 확인 + RSI 72 이하 + 돌파 기준가 대비 +8% 이내(추격 아님) · 손절: 최근 높은 저점</p>
 {rec_tbl(A, "조건을 만족하는 종목 없음")}

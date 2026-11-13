@@ -14,6 +14,7 @@ ETF·주식 투자 분석 작업 폴더입니다. 2026-11-12 Claude Code 세션�
 | `turn.json` | `turn.py`를 단독 실행할 때 생성됩니다. 다른 코드에서는 읽지 않습니다. |
 | `daily_report.py` | 상승전환 HTML 리포트 생성기 |
 | `fundamentals.py` | 매수 후보 재무 조회·등급(`get_many`, `grade`). 캐시는 `fund_cache.json` |
+| `ai_review.py` | 매수 추천 후보에 대한 Claude 검토(`review`). 결과는 `daily_report/data/ai/YYYY-MM-DD.json` |
 | `run_daily.sh` | cron 진입점. 로그는 `logs/daily_report.log`에 쌓입니다. |
 | `daily_report/` | `YYYY-MM-DD.html`, `latest.html`, `data/YYYY-MM-DD.json`(판정 스냅샷, 전일 비교용) |
 | `holdings/` | 보유종목 원본(`spy.xlsx`, `qqq.html`, `k200_sa.html`), 전체 구성종목 CSV(`qqq_full.csv`, `k200_full.csv`), 한글명 캐시(`kr_names.json`) |
@@ -28,6 +29,7 @@ ETF·주식 투자 분석 작업 폴더입니다. 2026-11-12 Claude Code 세션�
 | 재무 분석 (`fundamentals.py`) | 매수 추천 후보만 stockanalysis.com의 `/statistics/`(PER, 선행 PER, PBR, PEG, ROE, 영업이익률, FCF 마진, 부채비율, 3년 매출성장 전망, 배당)와 메인 페이지(Sector)를 조회합니다. `fund_cache.json`에 7일 캐시하고, 실패하면 오래된 캐시를 씁니다. 4개 축(가치·수익성·안정성·성장)의 통과 비율로 A/B/C/D 등급을 매기며, 평가 가능 축이 2개 미만이면 N/A입니다. 금융업(Sector가 Financials)은 PBR·ROE 기준을 쓰고 안정성은 평가하지 않습니다. **D등급은 추천에서 제외**하고 "재무 취약"으로 표시하며, 순서는 재무 등급 → 기술 점수입니다. 상세 기준은 `fundamentals.py` docstring에 있습니다. |
 | ETF별 추세 요약 (`closing_section`) | ETF 자체 추세(`SPY`, `QQQ`, `069500.KS`를 `turn.analyze`로 판정), 상위 종목 중 상승(전환+유지) 비중과 하락추세 비중(전일 대비 변화), 상위 3종목 상태. 판단은 상승 60% 이상이면 강세, 하락 60% 이상이면 약세, 그 외는 혼조 |
 | 매수 추천 (규칙 기반, 구분별 최대 6개) | ① 추세전환 매수: 상승전환 확인 + RSI ≤ 72 + 돌파 기준가 대비 +8% 이내. 손절은 최근 피벗 저점(`last_low`). ② 눌림목 매수: 상승추세 유지 + RSI 40~62 + 50일선 위 0~4%. 손절은 50일선 -3%. ③ 돌파 대기: 전환 진행·반등 중(또는 50일선 회복) + 기준가까지 3% 이내. 진입은 기준가 돌파 시, 손절은 최근 저점. RSI > 75인 추세 종목은 과열 경고로 따로 표시 |
+| AI 검토 (`ai_review.py`) | 규칙으로 확정한 추천 후보(구분별 최대 6개)를 Claude Code CLI(`claude -p --model opus --effort medium`, 구독 인증, WebSearch·WebFetch만 허용, `--json-schema` 출력)로 한 번에 보내 종목별 유지/주의/보류, 다가오는 이벤트, 리스크, 코멘트를 받습니다. **후보 선정과 순위는 바꾸지 않고** 추천 표의 "AI 검토 (참고)" 열과 요약 카드로만 표시합니다. 같은 날 후보가 같으면 저장된 결과를 재사용합니다. CLI가 없거나 로그인이 만료됐거나 호출이 실패하면 건너뛰고 리포트는 그대로 생성됩니다. cron에는 PATH에 `~/.local/bin`이 없어 경로를 직접 찾습니다(`CLAUDE_BIN`으로 지정 가능). `ANTHROPIC_API_KEY`가 환경에 있으면 구독 대신 API 과금이 되므로 설정하지 않습니다. 끄려면 `QUANT_AI_REVIEW=0` |
 | 수동 실행 | `./run_daily.sh` 또는 `python3 daily_report.py` |
 | 분석 대상 수 | `turn.py`의 `LIMITS = {"SPY": 30, "QQQ": 30, "KODEX200": 50}`. 소스가 부족하면 받을 수 있는 만큼만 분석하고, 리포트 상단에 "(요청 N개, 소스 한계)"로 표시합니다. |
 | 전체 목록 CSV | `holdings/qqq_full.csv`, `holdings/k200_full.csv`가 있으면 stockanalysis보다 우선 사용합니다. 형식은 헤더 1줄 + `ticker,name,weight(%)`이고, 한국 종목은 6자리 코드입니다. `daily_report.py`가 매일 자동으로 다시 만들며(`build_k200_csv`, `build_qqq_csv`), 갱신에 실패하면 기존 파일을 유지합니다. 수동으로 넣은 파일은 다음 실행에서 덮어써집니다. |
