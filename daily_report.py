@@ -248,13 +248,24 @@ def fetch_market(log):
     return out
 
 
-def _spark(vals, color, w=150, h=36):
+def _spark(vals, w=150, h=36):
+    """1개월 종가 선 그래프. 국내 증시 관례대로 전일 대비 오른 구간은 --rise(빨강), 내린 구간은 --fall(파랑)로 칠한다.
+    같은 방향이 이어지는 구간은 하나의 polyline 으로 묶고(경계점 공유), 보합 구간은 앞 구간 색을 따른다."""
     lo, hi = min(vals), max(vals)
     rng = (hi - lo) or 1
-    pts = " ".join(f"{i * w / (len(vals) - 1):.1f},{h - 2 - (v - lo) / rng * (h - 4):.1f}" for i, v in enumerate(vals))
+    xy = [f"{i * w / (len(vals) - 1):.1f},{h - 2 - (v - lo) / rng * (h - 4):.1f}" for i, v in enumerate(vals)]
+    runs = []  # [color, [points]]
+    for i in range(1, len(vals)):
+        d = vals[i] - vals[i - 1]
+        color = "--rise" if d > 0 else "--fall" if d < 0 else (runs[-1][0] if runs else "--muted")
+        if runs and runs[-1][0] == color:
+            runs[-1][1].append(xy[i])
+        else:
+            runs.append([color, [xy[i - 1], xy[i]]])
+    lines = "".join(f"<polyline points='{' '.join(p)}' fill=none stroke='var({c})' stroke-width=1.6 "
+                    f"vector-effect=non-scaling-stroke stroke-linejoin=round stroke-linecap=round />" for c, p in runs)
     return (f"<svg viewBox='0 0 {w} {h}' width='100%' height='{h}' preserveAspectRatio='none' aria-hidden=true>"
-            f"<polyline points='{pts}' fill=none stroke='var({color})' stroke-width=1.6 vector-effect=non-scaling-stroke "
-            f"stroke-linejoin=round /></svg>")
+            f"{lines}</svg>")
 
 
 def market_section(market):
@@ -266,17 +277,18 @@ def market_section(market):
         (d0, p0), (d1, p1) = s[-2], s[-1]
         chg, pct = p1 - p0, (p1 / p0 - 1) * 100
         mpct = (p1 / s[0][1] - 1) * 100
-        color = "--up" if chg > 0 else "--down" if chg < 0 else "--muted"
+        color = "--rise" if chg > 0 else "--fall" if chg < 0 else "--muted"
         arrow = "▲" if chg > 0 else "▼" if chg < 0 else "–"
         amt = m["fmt"].format(abs(chg)).replace("$", "")
         cards.append(
             f"<div class='card mk'><div class=ct><b>{html.escape(m['label'])}</b><span class=sub>{d1[5:]}</span></div>"
             f"<div class=mkp>{m['fmt'].format(p1)}</div>"
             f"<div style='color:var({color})'>{arrow} {amt} ({pct:+.2f}%)</div>"
-            f"{_spark([v for _, v in s], color)}"
+            f"{_spark([v for _, v in s])}"
             f"<div class=sub>전일({d0[5:]}) {m['fmt'].format(p0)} · 1개월 {mpct:+.1f}%</div></div>")
     return ("<div class=mkgrid>" + "".join(cards) + "</div>"
-            "<div class=sub style='margin-top:4px'>전일 대비는 직전 거래일 종가 기준 · 그래프는 최근 약 1개월 종가 · "
+            "<div class=sub style='margin-top:4px'>전일 대비는 직전 거래일 종가 기준 · 그래프는 최근 약 1개월 종가"
+            "(<span style='color:var(--rise)'>상승일</span>/<span style='color:var(--fall)'>하락일</span> 구간 색 구분) · "
             "환율은 Yahoo Finance 일별 값(KRW=X, JPYKRW=X), 장중에 생성하면 당일 값이 진행 중일 수 있음</div>")
 
 
@@ -575,9 +587,9 @@ def build(lists, res, log, etf_self=None, market=None):
 <title>상승전환 리포트 {today}</title>
 <style>
 :root{{--bg:#f7f7f5;--fg:#1d1d1f;--sub:#6b6b70;--card:#fff;--line:#e4e4e0;
---up:#0a8f5a;--trend:#2f7d4f;--turn:#c98a00;--turn2:#d4a64a;--warn:#c4682b;--down:#c0392b;--muted:#9a9a9a}}
+--rise:#d62f3a;--fall:#1f5fd1;--up:#0a8f5a;--trend:#2f7d4f;--turn:#c98a00;--turn2:#d4a64a;--warn:#c4682b;--down:#c0392b;--muted:#9a9a9a}}
 @media (prefers-color-scheme:dark){{:root:not([data-theme=light]){{--bg:#141416;--fg:#ececee;--sub:#9a9aa2;--card:#1e1e22;--line:#2e2e34;
---up:#3fcf8e;--trend:#5fb37f;--turn:#e5b23a;--turn2:#d9b86a;--warn:#e08a52;--down:#ef6a5a;--muted:#77777d}}}}
+--rise:#ff6b6b;--fall:#5b9cff;--up:#3fcf8e;--trend:#5fb37f;--turn:#e5b23a;--turn2:#d9b86a;--warn:#e08a52;--down:#ef6a5a;--muted:#77777d}}}}
 *{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 -apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}}
 main{{max-width:1180px;margin:0 auto;padding:24px 16px 48px}}h1{{font-size:22px;margin:0 0 4px}}h2{{font-size:17px;margin:32px 0 10px}}h3{{font-size:15px;margin:20px 0 4px}}
 .sub{{color:var(--sub);font-size:12px}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:16px}}
