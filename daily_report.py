@@ -228,6 +228,57 @@ def table(items, empty="해당 종목 없음"):
 
 ETF_SYMBOL = {"SPY": "SPY", "QQQ": "QQQ", "KODEX200": "069500.KS"}
 
+# 리포트 최상단 시장 요약: (표시명, Yahoo 심볼, 배수, 가격 형식)
+MARKET = [("SPY", "SPY", 1, "${:,.2f}"), ("QQQ", "QQQ", 1, "${:,.2f}"), ("KODEX 200", "069500.KS", 1, "{:,.0f}원"),
+          ("원/달러", "KRW=X", 1, "{:,.2f}원"), ("원/엔 (100엔)", "JPYKRW=X", 100, "{:,.2f}원")]
+SPARK_DAYS = 22  # 약 1개월
+
+
+def fetch_market(log):
+    out = []
+    for label, sym, mul, fmt in MARKET:
+        try:
+            rows = turn.fetch(sym)
+            if len(rows) < 2:
+                raise ValueError(f"{len(rows)} rows")
+            out.append({"label": label, "sym": sym, "fmt": fmt,
+                        "series": [(d.isoformat(), c * mul) for d, c, _ in rows[-(SPARK_DAYS + 1):]]})
+        except Exception as e:
+            log.append(f"{sym} 시장 요약 조회 실패 ({e})")
+    return out
+
+
+def _spark(vals, color, w=150, h=36):
+    lo, hi = min(vals), max(vals)
+    rng = (hi - lo) or 1
+    pts = " ".join(f"{i * w / (len(vals) - 1):.1f},{h - 2 - (v - lo) / rng * (h - 4):.1f}" for i, v in enumerate(vals))
+    return (f"<svg viewBox='0 0 {w} {h}' width='100%' height='{h}' preserveAspectRatio='none' aria-hidden=true>"
+            f"<polyline points='{pts}' fill=none stroke='var({color})' stroke-width=1.6 vector-effect=non-scaling-stroke "
+            f"stroke-linejoin=round /></svg>")
+
+
+def market_section(market):
+    if not market:
+        return ""
+    cards = []
+    for m in market:
+        s = m["series"]
+        (d0, p0), (d1, p1) = s[-2], s[-1]
+        chg, pct = p1 - p0, (p1 / p0 - 1) * 100
+        mpct = (p1 / s[0][1] - 1) * 100
+        color = "--up" if chg > 0 else "--down" if chg < 0 else "--muted"
+        arrow = "▲" if chg > 0 else "▼" if chg < 0 else "–"
+        amt = m["fmt"].format(abs(chg)).replace("$", "")
+        cards.append(
+            f"<div class='card mk'><div class=ct><b>{html.escape(m['label'])}</b><span class=sub>{d1[5:]}</span></div>"
+            f"<div class=mkp>{m['fmt'].format(p1)}</div>"
+            f"<div style='color:var({color})'>{arrow} {amt} ({pct:+.2f}%)</div>"
+            f"{_spark([v for _, v in s], color)}"
+            f"<div class=sub>전일({d0[5:]}) {m['fmt'].format(p0)} · 1개월 {mpct:+.1f}%</div></div>")
+    return ("<div class=mkgrid>" + "".join(cards) + "</div>"
+            "<div class=sub style='margin-top:4px'>전일 대비는 직전 거래일 종가 기준 · 그래프는 최근 약 1개월 종가 · "
+            "환율은 Yahoo Finance 일별 값(KRW=X, JPYKRW=X), 장중에 생성하면 당일 값이 진행 중일 수 있음</div>")
+
 
 def _etf_agg(lists, res):
     """ETF별 {상태그룹: 비중합}, 상위N 비중합."""
@@ -312,24 +363,27 @@ def closing_section(lists, ok, meta, etf_self, prev, log):
 
     ai = None
 
-    def ai_cell(t):
+    def ai_row(t):
+        """종목 행 바로 아래에 전체 폭으로 붙이는 AI 검토 행."""
         r = (ai or {}).get("reviews", {}).get(t)
         if not r:
-            return "<span class=sub>-</span>"
-        flags = "".join(f"<div class=sub>· {html.escape(x)}</div>" for x in r.get("risk_flags", []))
-        ev = f"<div class=sub>📅 {html.escape(r['next_event'])}</div>" if r.get("next_event") else ""
-        return (f"<span class=badge style='--c:var({AI_COLOR.get(r['verdict'], '--muted')})'>{html.escape(r['verdict'])}</span>"
-                f"<div>{html.escape(r.get('comment', ''))}</div>{ev}{flags}")
+            return ""
+        ev = f" <span class=aiev>📅 {html.escape(r['next_event'])}</span>" if r.get("next_event") else ""
+        flags = " ".join(f"<span class=aiflag>{html.escape(x)}</span>" for x in r.get("risk_flags", []))
+        return (f"<tr class=ai style='--c:var({AI_COLOR.get(r['verdict'], '--muted')})'><td colspan=7><span class=ailbl>AI 검토</span>"
+                f"<span class=badge>{html.escape(r['verdict'])}</span> "
+                f"{html.escape(r.get('comment', ''))}{ev}"
+                + (f"<div class=aiflags>{flags}</div>" if flags else "") + "</td></tr>")
 
     def rec_row(t, entry, stop, why):
         a = ok[t]
         risk = (entry - stop) / entry * 100 if entry and stop and stop < entry else None
-        return (f"<tr><td>{name_link(t, meta[t]['name'], a.get('exch'))}<div class=sub>{html.escape(', '.join(meta[t]['etfs']))}</div></td>"
+        sub = ai_row(t)
+        return (f"<tr{' class=hasai' if sub else ''}><td>{name_link(t, meta[t]['name'], a.get('exch'))}<div class=sub>{html.escape(', '.join(meta[t]['etfs']))}</div></td>"
                 f"<td class=num>{fmt_px(t, a['last'])}</td><td class=num>{entry_label(t, entry, a)}</td>"
                 f"<td class=num>{fmt_px(t, stop)}</td><td class=num>{'-' if risk is None else f'{risk:.1f}%'}</td>"
                 f"<td style='white-space:normal;min-width:260px'>{fund_cell(t)}</td>"
-                f"<td style='white-space:normal'>{why}</td>"
-                f"<td style='white-space:normal;min-width:240px'>{ai_cell(t)}</td></tr>")
+                f"<td style='white-space:normal'>{why}</td></tr>{sub}")
 
     def entry_label(t, entry, a):
         return "현재가 부근" if abs(entry / a["last"] - 1) < 0.005 else f"{fmt_px(t, entry)} 돌파 시"
@@ -396,7 +450,7 @@ def closing_section(lists, ok, meta, etf_self, prev, log):
         if not items:
             return f"<p class=empty>{empty}</p>"
         return ("<div class=tw><table><thead><tr><th>종목</th><th>현재가</th><th>매수 기준</th><th>손절 기준</th>"
-                "<th>위험폭</th><th>재무</th><th>기술적 근거</th><th>AI 검토 (참고)</th></tr></thead><tbody>"
+                "<th>위험폭</th><th>재무</th><th>기술적 근거</th></tr></thead><tbody>"
                 + "".join(items) + "</tbody></table></div>")
 
     ai_html = ""
@@ -448,7 +502,7 @@ def closing_section(lists, ok, meta, etf_self, prev, log):
 """
 
 
-def build(lists, res, log, etf_self=None):
+def build(lists, res, log, etf_self=None, market=None):
     now = dt.datetime.now()
     today = now.strftime("%Y-%m-%d")
     prev_day, prev = prev_snapshot(today)
@@ -538,9 +592,15 @@ tr:last-child td{{border-bottom:0}}.num{{text-align:right;font-variant-numeric:t
 .y{{color:var(--up)}}.n{{color:var(--muted)}}.new{{background:var(--up);color:#fff;font-size:10px;padding:1px 5px;border-radius:4px;vertical-align:middle}}
 .empty,.note{{color:var(--sub)}}details{{margin:10px 0}}summary{{cursor:pointer;font-weight:600;padding:6px 0}}
 .crit td{{white-space:normal}}td a{{color:inherit;text-decoration:none;border-bottom:1px dotted var(--sub)}}td a:hover{{color:var(--up);border-bottom-color:var(--up)}}footer{{margin-top:36px;color:var(--sub);font-size:12px}}
+.mkgrid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:16px}}
+.mk{{padding:12px}}.mk svg{{display:block;margin:6px 0 4px}}.mkp{{font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:4px}}
+tr.hasai td{{border-bottom:0;padding-bottom:4px}}tr.ai td{{white-space:normal;padding-top:0;font-size:12.5px;line-height:1.6;border-bottom:3px double var(--c)}}tr.ai:last-child td{{border-bottom:0}}
+.ailbl{{font-size:11px;color:var(--sub);margin-right:6px}}.aiev{{color:var(--sub);white-space:nowrap}}
+.aiflags{{margin-top:3px}}.aiflag{{display:inline-block;font-size:11px;color:var(--sub);border:1px solid var(--line);border-radius:4px;padding:0 6px;margin:0 4px 2px 0}}
 </style></head><body><main>
 <h1>상승전환 리포트 · {today}</h1>
 <div class="sub">데이터 기준 {data_date} 종가 · 생성 {now.strftime('%Y-%m-%d %H:%M')} · 비교 대상 {prev_day or '없음(첫 리포트)'} · 대상: {scope}</div>
+{market_section(market)}
 <div class="grid">{''.join(summary)}</div>
 
 <h2>🟢 상승전환 확인 ({len(up)}종목{f', 신규 {len(new_up)}' if new_up else ''})</h2>
@@ -588,7 +648,8 @@ def main():
             etf_self[etf] = turn.analyze(sym)
         except Exception as e:
             log.append(f"{sym} ETF 자체 분석 실패 ({e})")
-    today, page = build(lists, res, log, etf_self)
+    market = fetch_market(log)
+    today, page = build(lists, res, log, etf_self, market)
     path = os.path.join(OUT, f"{today}.html")
     with open(path, "w", encoding="utf-8") as f:
         f.write(page)
