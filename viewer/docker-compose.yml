@@ -1,0 +1,18 @@
+services:
+  report-viewer:
+    build: .
+    image: quant-report-viewer
+    container_name: quant-report-viewer
+    restart: unless-stopped
+    ports:
+      - "7007:7007"
+    environment:
+      SESSION_TTL_HOURS: "12"
+      # HTTPS 리버스 프록시 뒤에서 쓸 때 1로 바꿉니다.
+      COOKIE_SECURE: "0"
+    volumes:
+      - ../daily_report:/reports:ro
+      - ./config:/config:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]

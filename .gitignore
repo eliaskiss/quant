@@ -25,3 +25,7 @@ turn.json
 .idea/
 *.swp
 .DS_Store
+
+# 리포트 뷰어 로그인 정보
+viewer/config/users.json
+viewer/config/*.tmp

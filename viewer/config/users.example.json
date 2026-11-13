@@ -1,0 +1,5 @@
+{
+  "users": {
+    "example": "pbkdf2_sha256$600000$<salt hex>$<hash hex>"
+  }
+}

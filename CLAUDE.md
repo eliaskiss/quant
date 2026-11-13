@@ -17,6 +17,8 @@ ETF·주식 투자 분석 작업 폴더입니다. 2026-11-12 Claude Code 세션�
 | `ai_review.py` | 매수 추천 후보에 대한 Claude 검토(`review`). 결과는 `daily_report/data/ai/YYYY-MM-DD.json` |
 | `run_daily.sh` | cron 진입점. 로그는 `logs/daily_report.log`에 쌓입니다. |
 | `daily_report/` | `YYYY-MM-DD.html`, `latest.html`, `data/YYYY-MM-DD.json`(판정 스냅샷, 전일 비교용) |
+| `viewer/` | 리포트 웹 뷰어(docker, 포트 7007, 로그인 필요). `server.py`(표준 라이브러리), `passwd.py`(계정 관리), 로그인 정보는 `viewer/config/users.json`(git 제외, PBKDF2 해시). `docker compose up -d --build`로 실행하며 `daily_report/`를 읽기 전용으로 마운트합니다. users.json은 수정하면 재시작 없이 반영됩니다. |
+| `deploy.sh` | `.env`(url, username)의 Lightsail 서버 `~/quant`로 배포. 코드 rsync, 기존 리포트·holdings는 서버에 없는 파일만 복사, users.json은 서버에 없을 때만 복사(`--users`로 덮어쓰기). 뷰어 이미지는 **로컬에서 빌드**(`--provenance=false --sbom=false`로 ID 고정)해 `docker save | gzip | ssh docker load`로 보내고, 서버 이미지 ID가 같으면 전송을 생략합니다. 서버는 빌드하지 않고(`up --no-build --pull never`) 교체 후 라벨 `app=quant-report-viewer` 또는 이름 `quant-report-viewer`인 이미지 중 최신 것만 남기고 모두 삭제합니다(다른 프로젝트 이미지는 대상 아님). cron 등록(서버 TZ가 UTC라 `0 22 * * *` = 07:00 KST, 기존 cron 보존). `--run`은 배포 후 리포트를 즉시 생성. 서버 apt에 깨진 postgresql 저장소가 있어 `apt-get update`는 실패해도 계속 진행합니다. 외부 7007 접속은 Lightsail 콘솔 방화벽에서 열어야 합니다. |
 | `holdings/` | 보유종목 원본(`spy.xlsx`, `qqq.html`, `k200_sa.html`), 전체 구성종목 CSV(`qqq_full.csv`, `k200_full.csv`), 한글명 캐시(`kr_names.json`) |
 
 ## 매일 리포트
